@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# vllm-monitoring-prometheus — wrapper that runs prometheus with the correct
+# config file, storage path, and listen address.
+#
+# Expects vllm-monitoring-init to have been sourced (generates prometheus.yml).
+#
+# Environment variables (with defaults):
+#   PROMETHEUS_HOST  — listen address (default: 0.0.0.0)
+#   PROMETHEUS_PORT  — listen port (default: 9090)
+
+set -euo pipefail
+
+config_file="$FLOX_ENV_PROJECT/prometheus.yml"
+
+if [ ! -f "$config_file" ]; then
+  echo "vllm-monitoring-prometheus: ERROR: $config_file not found." >&2
+  echo "  Did you source vllm-monitoring-init in your on-activate hook?" >&2
+  exit 1
+fi
+
+exec prometheus \
+  --config.file="$config_file" \
+  --storage.tsdb.path="$FLOX_ENV_PROJECT/prometheus/data" \
+  --web.listen-address="${PROMETHEUS_HOST:-0.0.0.0}:${PROMETHEUS_PORT:-9090}"

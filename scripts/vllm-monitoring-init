@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# vllm-monitoring-init — sourced (not executed) from on-activate hook
+# Sets up mutable directories, seeds plugins/config, exports GF_* vars,
+# and generates prometheus.yml from the package's template.
+#
+# Usage (in consuming manifest's on-activate):
+#   . vllm-monitoring-init
+#
+# Environment variables (all have sane defaults):
+#   VLLM_SCRAPE_HOST     — where Prometheus scrapes vLLM (default: 127.0.0.1)
+#   VLLM_PORT            — vLLM metrics port (default: 8000)
+#   PROMETHEUS_HOST      — Prometheus listen address (default: 0.0.0.0)
+#   PROMETHEUS_PORT      — Prometheus listen port (default: 9090)
+#   GF_SERVER_HTTP_ADDR  — Grafana listen address (default: 0.0.0.0)
+#   GF_SERVER_HTTP_PORT  — Grafana listen port (default: 3000)
+#   GF_SECURITY_ADMIN_PASSWORD — Grafana admin password (default: admin)
+
+# ---------- locate package assets ----------
+
+VLLM_MONITORING_SHARE="${FLOX_ENV}/share/vllm-flox-monitoring"
+
+if [ ! -d "$VLLM_MONITORING_SHARE" ]; then
+  echo "vllm-monitoring-init: ERROR: package share dir not found at $VLLM_MONITORING_SHARE" >&2
+  echo "  Is flox/vllm-flox-monitoring installed?" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# ---------- create mutable directories ----------
+
+mkdir -p "$FLOX_ENV_PROJECT/grafana/data"
+mkdir -p "$FLOX_ENV_PROJECT/grafana/plugins"
+mkdir -p "$FLOX_ENV_PROJECT/prometheus/data"
+
+# ---------- seed plugins on first run ----------
+# Grafana writes to plugin dirs at runtime, so we copy from the immutable
+# Nix store into the mutable project dir. Re-seed by emptying the plugins dir.
+
+_monitoring_plugin_count=$(find "$FLOX_ENV_PROJECT/grafana/plugins" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+if [ "$_monitoring_plugin_count" -eq 0 ] && [ -d "$VLLM_MONITORING_SHARE/grafana/plugins" ]; then
+  echo "vllm-monitoring-init: seeding Grafana plugins from package..."
+  cp -r "$VLLM_MONITORING_SHARE/grafana/plugins/"* "$FLOX_ENV_PROJECT/grafana/plugins/" 2>/dev/null || true
+fi
+unset _monitoring_plugin_count
+
+# ---------- seed config.yaml if not present ----------
+# Never overwrite user's existing config.
+
+if [ ! -f "$FLOX_ENV_PROJECT/config.yaml" ]; then
+  echo "vllm-monitoring-init: seeding default config.yaml..."
+  cp "$VLLM_MONITORING_SHARE/config.yaml" "$FLOX_ENV_PROJECT/config.yaml"
+fi
+
+# ---------- export Grafana paths ----------
+# Provisioning and dashboards point to immutable package assets.
+# Data and plugins point to mutable project dirs.
+
+export GF_PATHS_PROVISIONING="$VLLM_MONITORING_SHARE/grafana/provisioning"
+export GF_PATHS_DATA="$FLOX_ENV_PROJECT/grafana/data"
+export GF_PATHS_PLUGINS="$FLOX_ENV_PROJECT/grafana/plugins"
+export GRAFANA_DASHBOARDS_DIR="$VLLM_MONITORING_SHARE/grafana/dashboards"
+
+# ---------- export Grafana server defaults ----------
+
+export GF_SERVER_HTTP_ADDR="${GF_SERVER_HTTP_ADDR:-0.0.0.0}"
+export GF_SERVER_HTTP_PORT="${GF_SERVER_HTTP_PORT:-3000}"
+export GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-admin}"
+
+# ---------- export Prometheus defaults ----------
+
+export PROMETHEUS_HOST="${PROMETHEUS_HOST:-0.0.0.0}"
+export PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
+
+# ---------- generate prometheus.yml from template ----------
+
+sed -e "s/\${VLLM_SCRAPE_HOST}/${VLLM_SCRAPE_HOST:-127.0.0.1}/g" \
+    -e "s/\${VLLM_PORT}/${VLLM_PORT:-8000}/g" \
+    "$VLLM_MONITORING_SHARE/prometheus.yml.template" \
+    > "$FLOX_ENV_PROJECT/prometheus.yml"

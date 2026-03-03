@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# vllm-monitoring-grafana — wrapper that runs grafana server with the correct
+# homepath and config file from the monitoring package.
+#
+# Expects vllm-monitoring-init to have been sourced (sets GF_PATHS_*).
+#
+# The grafana binary must be on PATH (installed separately via [install]).
+# GF_PATHS_PROVISIONING, GF_PATHS_DATA, GF_PATHS_PLUGINS, and
+# GRAFANA_DASHBOARDS_DIR are set by vllm-monitoring-init.
+
+set -euo pipefail
+
+VLLM_MONITORING_SHARE="${FLOX_ENV}/share/vllm-flox-monitoring"
+
+# Resolve grafana's homepath from the binary's Nix store location.
+# grafana binary lives at .../bin/grafana, homepath is .../share/grafana
+grafana_bin="$(command -v grafana 2>/dev/null)" || {
+  echo "vllm-monitoring-grafana: ERROR: grafana not found on PATH." >&2
+  echo "  Add grafana to [install] in your manifest." >&2
+  exit 1
+}
+grafana_homepath="$(dirname "$(dirname "$grafana_bin")")/share/grafana"
+
+if [ ! -d "$grafana_homepath" ]; then
+  echo "vllm-monitoring-grafana: ERROR: grafana homepath not found at $grafana_homepath" >&2
+  exit 1
+fi
+
+exec grafana server \
+  --homepath="$grafana_homepath" \
+  --config="$VLLM_MONITORING_SHARE/grafana/grafana.ini"
