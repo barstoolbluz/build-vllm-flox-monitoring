@@ -39,6 +39,8 @@ _monitoring_plugin_count=$(find "$FLOX_ENV_PROJECT/grafana/plugins" -maxdepth 1 
 if [ "$_monitoring_plugin_count" -eq 0 ] && [ -d "$VLLM_MONITORING_SHARE/grafana/plugins" ]; then
   echo "vllm-monitoring-init: seeding Grafana plugins from package..."
   cp -r "$VLLM_MONITORING_SHARE/grafana/plugins/"* "$FLOX_ENV_PROJECT/grafana/plugins/" 2>/dev/null || true
+  # Nix store files are read-only (444); Grafana needs write access at runtime
+  chmod -R u+w "$FLOX_ENV_PROJECT/grafana/plugins/" 2>/dev/null || true
 fi
 unset _monitoring_plugin_count
 
