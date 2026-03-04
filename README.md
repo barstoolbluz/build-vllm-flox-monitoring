@@ -247,5 +247,6 @@ build-vllm-flox-monitoring/
       provisioning/{datasources,dashboards}/
       dashboards/vllm.json
       plugins/ (4 pre-compiled plugin dirs)
+  README.md
   .gitignore
 ```
