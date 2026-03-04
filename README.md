@@ -2,7 +2,7 @@
 
 Monitoring stack for vLLM inference servers — Prometheus scraping, Grafana dashboards, and pre-configured plugins, packaged as a Flox catalog package (`flox/vllm-flox-monitoring`).
 
-Designed to work with [`flox/vllm-flox-runtime`](https://github.com/flox/build-vllm-flox-runtime) but usable with any vLLM deployment that exposes `/metrics`.
+Designed to work with `flox/vllm-flox-runtime` but usable with any vLLM deployment that exposes `/metrics`.
 
 ## What's in the package
 
@@ -49,9 +49,39 @@ prometheus.pkg-path = "prometheus"
 grafana.pkg-path = "grafana"
 vllm-flox-monitoring.pkg-path = "flox/vllm-flox-monitoring"
 vllm-flox-runtime.pkg-path = "flox/vllm-flox-runtime"
+vllm-python312-cuda12_9-sm120.pkg-path = "flox/vllm-python312-cuda12_9-sm120"
+vllm-python312-cuda12_9-sm120.pkg-group = "vllm-python312-cuda12_9-sm120"
 
 [hook]
 on-activate = '''
+  # Model
+  export VLLM_MODEL="${VLLM_MODEL:-Llama-3.1-8B-Instruct}"
+  export VLLM_MODEL_ORG="${VLLM_MODEL_ORG:-meta-llama}"
+  export VLLM_MODEL_SOURCES="${VLLM_MODEL_SOURCES:-local,hf-cache,hf-hub}"
+  export VLLM_MODELS_DIR="${VLLM_MODELS_DIR:-$FLOX_ENV_PROJECT/models}"
+  export VLLM_SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-$VLLM_MODEL}"
+
+  # Server
+  export VLLM_HOST="${VLLM_HOST:-127.0.0.1}"
+  export VLLM_PORT="${VLLM_PORT:-8000}"
+  export VLLM_API_KEY="${VLLM_API_KEY:-sk-vllm-local-dev}"
+
+  # Engine tuning
+  export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-1}"
+  export VLLM_PIPELINE_PARALLEL_SIZE="${VLLM_PIPELINE_PARALLEL_SIZE:-1}"
+  export VLLM_PREFIX_CACHING="${VLLM_PREFIX_CACHING:-false}"
+  export VLLM_KV_CACHE_DTYPE="${VLLM_KV_CACHE_DTYPE:-auto}"
+  export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-4096}"
+  export VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
+
+  # Logging / metrics
+  export VLLM_LOGGING_LEVEL="${VLLM_LOGGING_LEVEL:-WARNING}"
+  export PROMETHEUS_MULTIPROC_DIR="${PROMETHEUS_MULTIPROC_DIR:-/tmp/vllm-prometheus}"
+
+  mkdir -p "$VLLM_MODELS_DIR"
+  mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+
+  # Monitoring setup
   . vllm-monitoring-init
 '''
 
@@ -61,7 +91,7 @@ prometheus.command = "vllm-monitoring-prometheus"
 grafana.command = "vllm-monitoring-grafana"
 ```
 
-Note: `prometheus` and `grafana` binaries are installed separately via `[install]`. The monitoring package provides wrappers and config, not the server binaries. This allows independent version pinning.
+Note: `prometheus` and `grafana` binaries are installed separately via `[install]`. The monitoring package provides wrappers and config, not the server binaries — this allows independent version pinning. The vLLM Python/CUDA package (`vllm-python312-cuda12_9-sm120`) must also be installed separately; swap the SM variant to match your GPU (e.g., `sm90` for H100, `sm89` for RTX 4090).
 
 ### 2. Activate
 
@@ -175,13 +205,14 @@ This package is part of a composable vLLM stack:
 │  Consuming Environment                                │
 │                                                       │
 │  [install]                                            │
-│    prometheus             # binary                    │
-│    grafana                # binary                    │
-│    flox/vllm-flox-monitoring  # config + wrappers     │
-│    flox/vllm-flox-runtime     # vLLM scripts          │
+│    prometheus                  # binary               │
+│    grafana                     # binary               │
+│    flox/vllm-flox-monitoring   # config + wrappers    │
+│    flox/vllm-flox-runtime      # vLLM scripts         │
+│    flox/vllm-python312-cuda*   # vLLM + CUDA          │
 │                                                       │
 │  [hook]                                               │
-│    on-activate = '. vllm-monitoring-init'              │
+│    on-activate = '... && . vllm-monitoring-init'       │
 │                                                       │
 │  [services]                                           │
 │    vllm        → vllm-preflight && ... && vllm-serve  │
