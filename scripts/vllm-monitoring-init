@@ -63,6 +63,7 @@ export GRAFANA_DASHBOARDS_DIR="$VLLM_MONITORING_SHARE/grafana/dashboards"
 
 # ---------- export Grafana server defaults ----------
 
+export GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH="$VLLM_MONITORING_SHARE/grafana/dashboards/vllm.json"
 export GF_SERVER_HTTP_ADDR="${GF_SERVER_HTTP_ADDR:-0.0.0.0}"
 export GF_SERVER_HTTP_PORT="${GF_SERVER_HTTP_PORT:-3000}"
 export GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-admin}"
