@@ -7,6 +7,7 @@
 #   . vllm-monitoring-init
 #
 # Environment variables (all have sane defaults):
+#   VLLM_HOST            — vLLM listen address (default: 0.0.0.0)
 #   VLLM_SCRAPE_HOST     — where Prometheus scrapes vLLM (default: 127.0.0.1)
 #   VLLM_PORT            — vLLM metrics port (default: 8000)
 #   PROMETHEUS_HOST      — Prometheus listen address (default: 0.0.0.0)
@@ -52,6 +53,22 @@ if [ ! -f "$FLOX_ENV_PROJECT/config.yaml" ]; then
   cp "$VLLM_MONITORING_SHARE/config.yaml" "$FLOX_ENV_PROJECT/config.yaml"
 fi
 
+# ---------- sync host/port in config.yaml to env vars ----------
+# Update ONLY host and port lines on every activation, preserving
+# user edits to all other fields (gpu-memory-utilization, dtype, etc.).
+
+if [ -f "$FLOX_ENV_PROJECT/config.yaml" ]; then
+  sed -i \
+    -e "s|^host:.*|host: \"${VLLM_HOST:-0.0.0.0}\"|" \
+    -e "s|^port:.*|port: ${VLLM_PORT:-8000}|" \
+    "$FLOX_ENV_PROJECT/config.yaml"
+else
+  echo "vllm-monitoring-init: WARNING: config.yaml not found, skipping host/port sync" >&2
+fi
+
+# Point vllm-serve at the config we just patched
+export VLLM_CONFIG_FILE="${VLLM_CONFIG_FILE:-$FLOX_ENV_PROJECT/config.yaml}"
+
 # ---------- export Grafana paths ----------
 # Provisioning and dashboards point to immutable package assets.
 # Data and plugins point to mutable project dirs.
@@ -75,7 +92,7 @@ export PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
 
 # ---------- generate prometheus.yml from template ----------
 
-sed -e "s/\${VLLM_SCRAPE_HOST}/${VLLM_SCRAPE_HOST:-127.0.0.1}/g" \
-    -e "s/\${VLLM_PORT}/${VLLM_PORT:-8000}/g" \
+sed -e "s|\${VLLM_SCRAPE_HOST}|${VLLM_SCRAPE_HOST:-127.0.0.1}|g" \
+    -e "s|\${VLLM_PORT}|${VLLM_PORT:-8000}|g" \
     "$VLLM_MONITORING_SHARE/prometheus.yml.template" \
     > "$FLOX_ENV_PROJECT/prometheus.yml"

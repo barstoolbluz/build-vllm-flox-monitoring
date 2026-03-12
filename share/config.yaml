@@ -11,7 +11,7 @@
 #     aggressive but stable for 24GB cards (~2GB headroom for CUDA context).
 #     For 48GB+ cards, 0.95 is safe. Reduce if you see OOM during prefill.
 
-host: "127.0.0.1"
+host: "0.0.0.0"
 port: 8000
 
 dtype: auto
