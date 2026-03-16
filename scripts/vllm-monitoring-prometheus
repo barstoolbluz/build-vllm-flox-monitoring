@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-config_file="$FLOX_ENV_PROJECT/prometheus.yml"
+config_file="$FLOX_ENV_CACHE/config/prometheus.yml"
 
 if [ ! -f "$config_file" ]; then
   echo "vllm-monitoring-prometheus: ERROR: $config_file not found." >&2
@@ -20,5 +20,5 @@ fi
 
 exec prometheus \
   --config.file="$config_file" \
-  --storage.tsdb.path="$FLOX_ENV_PROJECT/prometheus/data" \
+  --storage.tsdb.path="$FLOX_ENV_CACHE/prometheus/data" \
   --web.listen-address="${PROMETHEUS_HOST:-0.0.0.0}:${PROMETHEUS_PORT:-9090}"

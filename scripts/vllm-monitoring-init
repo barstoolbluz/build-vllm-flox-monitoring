@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vllm-monitoring-init — sourced (not executed) from on-activate hook
 # Sets up mutable directories, seeds plugins/config, exports GF_* vars,
-# and generates prometheus.yml from the package's template.
+# and generates prometheus.yml and Grafana provisioning files.
 #
 # Usage (in consuming manifest's on-activate):
 #   . vllm-monitoring-init
@@ -26,61 +26,54 @@ if [ ! -d "$VLLM_MONITORING_SHARE" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-# ---------- create mutable directories ----------
+# ---------- create mutable directories in cache ----------
 
-mkdir -p "$FLOX_ENV_PROJECT/grafana/data"
-mkdir -p "$FLOX_ENV_PROJECT/grafana/plugins"
-mkdir -p "$FLOX_ENV_PROJECT/prometheus/data"
+mkdir -p "$FLOX_ENV_CACHE/grafana/data"
+mkdir -p "$FLOX_ENV_CACHE/grafana/plugins"
+mkdir -p "$FLOX_ENV_CACHE/grafana/provisioning/datasources"
+mkdir -p "$FLOX_ENV_CACHE/grafana/provisioning/dashboards"
+mkdir -p "$FLOX_ENV_CACHE/prometheus/data"
+mkdir -p "$FLOX_ENV_CACHE/config"
 
 # ---------- seed plugins on first run ----------
 # Grafana writes to plugin dirs at runtime, so we copy from the immutable
-# Nix store into the mutable project dir. Re-seed by emptying the plugins dir.
+# Nix store into the mutable cache dir. Re-seed by emptying the plugins dir.
 
-_monitoring_plugin_count=$(find "$FLOX_ENV_PROJECT/grafana/plugins" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+_monitoring_plugin_count=$(find "$FLOX_ENV_CACHE/grafana/plugins" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
 if [ "$_monitoring_plugin_count" -eq 0 ] && [ -d "$VLLM_MONITORING_SHARE/grafana/plugins" ]; then
   echo "vllm-monitoring-init: seeding Grafana plugins from package..."
-  cp -r "$VLLM_MONITORING_SHARE/grafana/plugins/"* "$FLOX_ENV_PROJECT/grafana/plugins/" 2>/dev/null || true
+  cp -r "$VLLM_MONITORING_SHARE/grafana/plugins/"* "$FLOX_ENV_CACHE/grafana/plugins/" 2>/dev/null || true
   # Nix store files are read-only (444); Grafana needs write access at runtime
-  chmod -R u+w "$FLOX_ENV_PROJECT/grafana/plugins/" 2>/dev/null || true
+  chmod -R u+w "$FLOX_ENV_CACHE/grafana/plugins/" 2>/dev/null || true
 fi
 unset _monitoring_plugin_count
 
 # ---------- seed config.yaml if not present ----------
 # Never overwrite user's existing config.
 
-if [ ! -f "$FLOX_ENV_PROJECT/config.yaml" ]; then
-  echo "vllm-monitoring-init: seeding default config.yaml..."
-  cp "$VLLM_MONITORING_SHARE/config.yaml" "$FLOX_ENV_PROJECT/config.yaml"
+if [ ! -f "$FLOX_ENV_CACHE/config/vllm-config.yaml" ]; then
+  echo "vllm-monitoring-init: seeding default vllm-config.yaml..."
+  cp "$VLLM_MONITORING_SHARE/config.yaml" "$FLOX_ENV_CACHE/config/vllm-config.yaml"
 fi
 
 # ---------- sync host/port in config.yaml to env vars ----------
 # Update ONLY host and port lines on every activation, preserving
 # user edits to all other fields (gpu-memory-utilization, dtype, etc.).
 
-if [ -f "$FLOX_ENV_PROJECT/config.yaml" ]; then
+if [ -f "$FLOX_ENV_CACHE/config/vllm-config.yaml" ]; then
   sed -i \
     -e "s|^host:.*|host: \"${VLLM_HOST:-0.0.0.0}\"|" \
     -e "s|^port:.*|port: ${VLLM_PORT:-8000}|" \
-    "$FLOX_ENV_PROJECT/config.yaml"
+    "$FLOX_ENV_CACHE/config/vllm-config.yaml"
 else
-  echo "vllm-monitoring-init: WARNING: config.yaml not found, skipping host/port sync" >&2
+  echo "vllm-monitoring-init: WARNING: vllm-config.yaml not found, skipping host/port sync" >&2
 fi
 
 # Point vllm-serve at the config we just patched
-export VLLM_CONFIG_FILE="${VLLM_CONFIG_FILE:-$FLOX_ENV_PROJECT/config.yaml}"
-
-# ---------- export Grafana paths ----------
-# Provisioning and dashboards point to immutable package assets.
-# Data and plugins point to mutable project dirs.
-
-export GF_PATHS_PROVISIONING="$VLLM_MONITORING_SHARE/grafana/provisioning"
-export GF_PATHS_DATA="$FLOX_ENV_PROJECT/grafana/data"
-export GF_PATHS_PLUGINS="$FLOX_ENV_PROJECT/grafana/plugins"
-export GRAFANA_DASHBOARDS_DIR="$VLLM_MONITORING_SHARE/grafana/dashboards"
+export VLLM_CONFIG_FILE="${VLLM_CONFIG_FILE:-$FLOX_ENV_CACHE/config/vllm-config.yaml}"
 
 # ---------- export Grafana server defaults ----------
 
-export GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH="$VLLM_MONITORING_SHARE/grafana/dashboards/vllm.json"
 export GF_SERVER_HTTP_ADDR="${GF_SERVER_HTTP_ADDR:-0.0.0.0}"
 export GF_SERVER_HTTP_PORT="${GF_SERVER_HTTP_PORT:-3000}"
 export GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-admin}"
@@ -90,9 +83,58 @@ export GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD:-admin}"
 export PROMETHEUS_HOST="${PROMETHEUS_HOST:-0.0.0.0}"
 export PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
 
-# ---------- generate prometheus.yml from template ----------
+# ---------- export Grafana paths ----------
+# Provisioning files are generated below (variables must be expanded).
+# Dashboards and config point to immutable package assets.
+# Data and plugins point to mutable cache dirs.
 
-sed -e "s|\${VLLM_SCRAPE_HOST}|${VLLM_SCRAPE_HOST:-127.0.0.1}|g" \
-    -e "s|\${VLLM_PORT}|${VLLM_PORT:-8000}|g" \
-    "$VLLM_MONITORING_SHARE/prometheus.yml.template" \
-    > "$FLOX_ENV_PROJECT/prometheus.yml"
+export GF_PATHS_PROVISIONING="$FLOX_ENV_CACHE/grafana/provisioning"
+export GF_PATHS_DATA="$FLOX_ENV_CACHE/grafana/data"
+export GF_PATHS_PLUGINS="$FLOX_ENV_CACHE/grafana/plugins"
+export GRAFANA_DASHBOARDS_DIR="$VLLM_MONITORING_SHARE/grafana/dashboards"
+export GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH="$VLLM_MONITORING_SHARE/grafana/dashboards/vllm.json"
+
+# ---------- generate provisioning files with expanded variables ----------
+
+cat > "$FLOX_ENV_CACHE/grafana/provisioning/datasources/prometheus.yaml" <<DATASOURCE
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:${PROMETHEUS_PORT}
+    isDefault: true
+    editable: true
+DATASOURCE
+
+cat > "$FLOX_ENV_CACHE/grafana/provisioning/dashboards/dashboard.yaml" <<DASHPROV
+apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: ${GRAFANA_DASHBOARDS_DIR}
+      foldersFromFilesStructure: false
+DASHPROV
+
+# ---------- generate prometheus.yml ----------
+
+cat > "$FLOX_ENV_CACHE/config/prometheus.yml" <<PROMCFG
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "vllm"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["${VLLM_SCRAPE_HOST:-127.0.0.1}:${VLLM_PORT:-8000}"]
+PROMCFG

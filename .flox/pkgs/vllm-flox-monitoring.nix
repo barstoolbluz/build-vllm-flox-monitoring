@@ -2,7 +2,7 @@
 
 stdenv.mkDerivation {
   pname = "vllm-flox-monitoring";
-  version = "0.9.5";
+  version = "0.9.6";
 
   # Use the repo root as source, but only pull in what we need
   src = ../..;
